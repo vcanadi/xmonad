@@ -16,3 +16,10 @@ cabal.sandbox.config
 *.hp
 .stack-work/
 .local
+history
+output
+prompt-history
+xmonad-x86_64-linux
+xmonad.errors
+xmonad.state
+
