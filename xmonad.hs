@@ -1,24 +1,35 @@
+import Data.Monoid
+import System.IO
 import XMonad
+import XMonad.Actions.GridSelect
 import XMonad.Hooks.DynamicLog
 import XMonad.Hooks.ManageDocks hiding (L)
 import XMonad.Hooks.Script
-import XMonad.Util.Run(spawnPipe)
-import XMonad.Util.EZConfig(additionalKeys,additionalKeysP)
-import System.IO
-import Data.Monoid
+import XMonad.Layout
+import XMonad.Layout.Grid
+import XMonad.Layout.NoBorders (noBorders, smartBorders)
+import XMonad.Layout.PerWorkspace
+import XMonad.Layout.Tabbed
+import XMonad.Layout.WorkspaceDir
 import XMonad.Prompt
 import XMonad.Prompt.Shell
 import XMonad.Prompt.XMonad
-import XMonad.Layout
-import XMonad.Layout.Tabbed
-import XMonad.Layout.PerWorkspace
-import XMonad.Layout.NoBorders ( noBorders, smartBorders)
-import XMonad.Layout.WorkspaceDir
-import XMonad.Layout.Grid
+import qualified XMonad.StackSet as W
+import XMonad.Util.EZConfig (additionalKeys, additionalKeysP)
+import XMonad.Util.Run (spawnPipe)
 
-myLauncher = "$(yeganesh -x -- -fn '-*-terminus-*-r-normal-*-*-120-*-*-*-*-iso8859-*' -nb '#000000' -nf '#FFFFFF' -sb '#7C7C7C' -sf '#CEFFAC')"
-myWorkspaces = fmap show [1..7] <> ["8:media","9:web"] 
+greenColorizer = colorRangeFromClassName
+                     white            -- lowest inactive bg
+                     (0x70,0xFF,0x70) -- highest inactive bg
+                     black            -- active bg
+                     black            -- inactive fg
+                     white            -- active fg
+  where black = minBound
+        white = maxBound
 
+gsconfig2 colorizer = (buildDefaultGSConfig colorizer) { gs_cellheight = 30, gs_cellwidth = 100 }
+
+myWorkspaces = ["1","2","3:reports","4","5", "6", "7:media", "8", "9:web"]
 
 myTallLayout =  Tall  nmaster delta tiled_ratio
     where
@@ -26,14 +37,14 @@ myTallLayout =  Tall  nmaster delta tiled_ratio
     delta = 10/100
     tiled_ratio = 11/19
 
-myDefaultLayout = 
-        smartBorders myTallLayout 
+myDefaultLayout =
+        smartBorders myTallLayout
     ||| smartBorders (Mirror myTallLayout)
 
-myLayout = 
-        avoidStruts 
-      $ onWorkspace (myWorkspaces!!7) (noBorders Full)  
-      $ onWorkspace (myWorkspaces!!8) (simpleTabbed ||| Mirror myTallLayout)  
+myLayout =
+        avoidStruts
+      $ onWorkspace (myWorkspaces!!6) (noBorders Full)
+      $ onWorkspace (myWorkspaces!!8) (simpleTabbed ||| Mirror myTallLayout)
       $ myDefaultLayout
 
 -- myLayoutWithDir dir = workspaceDir dir $ myLayout
@@ -43,16 +54,19 @@ myTerminal = "urxvt"
 
 myAdditionalKeys =
     [ ((mod4Mask .|. shiftMask, xK_z), spawn "sleep 0.1 ; xtrlock")
-    , ((controlMask, xK_Print), spawn "sleep 0.2; scrot -e 'mv $f /home/deder/Documents/screenshots/' ")
-    , ((mod4Mask, xK_Left), spawn "amixer set Master 5%-")
-    , ((mod4Mask, xK_Right), spawn "amixer set Master 5%+")
-    , ((mod4Mask, xK_Up), spawn "setxkbmap us && . ~/.xmodmaprc")
-    , ((mod4Mask, xK_Down), spawn "setxkbmap hr  && . ~/.xmodmaprc")
-    , ((mod4Mask .|. shiftMask, xK_Left), spawn "xrandr --output eDP1 --brightness 0.4")
+    , ((controlMask, xK_Print), spawn "sleep 0.2; scrot -e 'mv $f /home/bunkar/downloads/screenshots/' ")
+    , ((mod4Mask, xK_Left), spawn "pactl  set-sink-volume alsa_output.pci-0000_00_1b.0.analog-stereo -5%")
+    , ((mod4Mask, xK_Right), spawn "pactl  set-sink-volume alsa_output.pci-0000_00_1b.0.analog-stereo +5%")
+    , ((mod4Mask, xK_Up), spawn "setxkbmap us")
+    , ((mod4Mask, xK_Down), spawn "setxkbmap hr")
+    , ((mod4Mask .|. shiftMask, xK_Left), spawn "xrandr --output eDP1 --brightness 0.3")
     , ((mod4Mask .|. shiftMask, xK_Right), spawn "xrandr --output eDP1 --brightness 1")
-    -- , ((mod4Mask .|. controlMask, xK_x), safePrompt "firefox" greenXPConfig)
+    , ((mod4Mask .|. shiftMask, xK_c), return ())
+    , ((mod4Mask .|. controlMask, xK_x), safePrompt "firefox" greenXPConfig)
     , ((mod4Mask , xK_p), shellPrompt greenXPConfig)
-    , ((mod4Mask .|. controlMask, xK_x), xmonadPrompt def)
+    , ((mod4Mask , xK_w), spawn "xrandr --output eDP1 --auto; xrandr --output HDMI1 --off")
+    , ((mod4Mask , xK_e), spawn "xrandr --output HDMI1 --auto; xrandr --output eDP1 --off")
+    , ((mod4Mask , xK_g), goToSelected (gsconfig2 greenColorizer))
     ]
 
 myAdditionalKeysP =
@@ -68,60 +82,34 @@ myAdditionalKeysP =
     ,("M-C-S-<Space>",spawn $ "xdotool click 1     ")
     ]
 
-
--- myXMobarConfig = XConfig { font = "-*-Fixed-Bold-R-Normal-*-13-*-*-*-*-*-*-*"
---         , borderColor = "black"
---         , border = TopB
---         , bgColor = "black"
---         , fgColor = "grey"
---         , position = TopW L 100
---         , commands = [ Run Weather "CYVR" ["-t","<tempC>C","-L","18","-H","25","--normal","green","--high","red","--low","lightblue"] 36000
---                         , Run Network "eth0" ["-L","0","-H","32","--normal","green","--high","red"] 10
---                         , Run Network "eth1" ["-L","0","-H","32","--normal","green","--high","red"] 10
---                         , Run Cpu ["-L","3","-H","50","--normal","green","--high","red"] 10
---                         , Run Memory ["-t","Mem: <usedratio>%"] 10
---                         , Run Swap [] 10
---                         , Run Com "uname" ["-s","-r"] "" 36000
---                         , Run Date "%a %b %_d %Y %H:%M:%S" "date" 10
---                         , Run StdinReader
---                         ]
---         , sepChar = "%"
---         , alignSep = "}{"
---         , template = "%StdinReader% | %cpu% | %memory% * %swap% | %eth0% - %eth1% }{<fc=#ee9a00>%date%</fc> | %uname% | %CYVR% "
---         }
-
-
-myManageHooks :: [ManageHook]
-myManageHooks = [
-  resource =? "stalonetray" --> doIgnore
-  ]
-
 myConfig xmproc  = def
-        { startupHook = spawn ". ~/.xmonad/hooks/startup"
-        , manageHook = manageDocks <+>  composeAll myManageHooks
-        , logHook = dynamicLogWithPP def
+        {
+          logHook = dynamicLogWithPP def
                         { ppOutput = hPutStrLn xmproc
                         , ppTitle = xmobarColor "blue" "" . shorten 50
-                        } 
-                  <+> spawn "date >> .xmonad/output"
+                        }
         , layoutHook =  myLayout
-        , handleEventHook = mconcat [ docksEventHook, handleEventHook def ] 
+        , handleEventHook = mconcat [ docksEventHook, handleEventHook def ]
         , modMask = mod4Mask
         , terminal = myTerminal
-        , borderWidth=2
-        , focusedBorderColor = "#00FF00"
+        , borderWidth = 0
+        , focusedBorderColor = "#FF0000"
         , normalBorderColor = "#000000"
         , focusFollowsMouse = False
-        , workspaces = myWorkspaces 
+        , workspaces = myWorkspaces
         }
         `additionalKeys` myAdditionalKeys
         `additionalKeysP`myAdditionalKeysP
 
-
+myPP = xmobarPP { ppOutput          = putStrLn
+                , ppCurrent         = xmobarColor "#336433" "" . wrap "[" "]"
+                , ppTitle           = xmobarColor "darkgreen"  "" . shorten 20
+                , ppLayout          = shorten 50
+                , ppUrgent          = xmobarColor "red" "yellow"
+                }
 main = do
     xmproc <- spawnPipe "xmobar ~/.xmonad/xmobar.hs"
-    xmonad (myConfig xmproc)
-    -- xmonad =<< statusBar "xmobar" myXmobarPP toggleStrutsKey  myConfig
+    xmonad $ myConfig xmproc
 
 toggleStrutsKey :: XConfig t -> (KeyMask, KeySym)
 toggleStrutsKey XConfig{modMask = modm} = (modm, xK_b )
