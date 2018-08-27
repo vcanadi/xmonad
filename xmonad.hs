@@ -17,13 +17,15 @@ import XMonad.Prompt.XMonad
 import qualified XMonad.StackSet as W
 import XMonad.Util.EZConfig (additionalKeys, additionalKeysP)
 import XMonad.Util.Run (spawnPipe)
+import qualified Data.Map as M
+
 
 greenColorizer = colorRangeFromClassName
-                     white            -- lowest inactive bg
-                     (0x70,0xFF,0x70) -- highest inactive bg
-                     black            -- active bg
-                     black            -- inactive fg
-                     white            -- active fg
+    white            -- lowest inactive bg
+    (0x70,0xFF,0x70) -- highest inactive bg
+    black            -- active bg
+    black            -- inactive fg
+    white            -- active fg
   where black = minBound
         white = maxBound
 
@@ -51,62 +53,112 @@ myLayout =
 
 myTerminal = "urxvt"
 
+mousePress, mouseRelease, mouseClick :: Int -> X ()
+mousePress btn = spawn $ "xdotool mousedown " <> show btn
+mouseRelease btn = spawn $ "xdotool mouseup " <> show btn
+mouseClick btn = spawn $ "xdotool mousedown " <> show btn <> "; xdotool mouseup " <> show btn
+
+-- Get key release for mouse click simulation
+keyDownEventHook :: Event -> X All
+keyDownEventHook e = handle e >> return (All True)
+  where
+    handle :: Event -> X ()
+    handle (KeyEvent {ev_event_type = t, ev_state = m, ev_keycode = code})
+        | t == keyPress = withDisplay $ \dpy -> do
+            s  <- io $ keycodeToKeysym dpy code 0
+            mClean <- cleanMask m
+            ks <- asks keys
+            userCodeDef () $ whenJust (M.lookup (mClean, s) ks) id
+    handle _ = return ()
+    keys _ = M.fromList $
+      [ ((mod4Mask , xK_c), mousePress 1)
+      , ((mod4Mask .|. controlMask, xK_c), mousePress 1)
+      ]
+
+keyUpEventHook :: Event -> X All
+keyUpEventHook e = handle e >> return (All True)
+  where
+    handle :: Event -> X ()
+    handle (KeyEvent {ev_event_type = t, ev_state = m, ev_keycode = code})
+        | t == keyRelease = withDisplay $ \dpy -> do
+            s  <- io $ keycodeToKeysym dpy code 0
+            mClean <- cleanMask m
+            ks <- asks keys
+            userCodeDef () $ whenJust (M.lookup (mClean, s) ks) id
+    handle _ = return ()
+    keys _ = M.fromList $
+      [ ((mod4Mask, xK_v), mouseRelease 1)
+      , ((mod4Mask .|. controlMask, xK_v), mouseRelease 1)
+      ]
 
 myAdditionalKeys =
     [ ((mod4Mask .|. shiftMask, xK_z), spawn "sleep 0.1 ; xtrlock")
-    , ((controlMask, xK_Print), spawn "sleep 0.2; scrot -e 'mv $f /home/bunkar/downloads/screenshots/' ")
-    , ((mod4Mask, xK_Left), spawn "pactl  set-sink-volume alsa_output.pci-0000_00_1b.0.analog-stereo -5%")
-    , ((mod4Mask, xK_Right), spawn "pactl  set-sink-volume alsa_output.pci-0000_00_1b.0.analog-stereo +5%")
+    , ((controlMask, xK_Print), spawn "sleep 0.2; scrot -e 'mv $f ~/downloads/screenshots/' ")
+    , ((mod4Mask, xK_Left), spawn "pactl  set-sink-volume alsa_output.pci-0000_00_1f.3.analog-stereo -5%")
+    , ((mod4Mask, xK_Right), spawn "pactl  set-sink-volume alsa_output.pci-0000_00_1f.3.analog-stereo +5%")
     , ((mod4Mask, xK_Up), spawn "setxkbmap us")
     , ((mod4Mask, xK_Down), spawn "setxkbmap hr")
     , ((mod4Mask .|. shiftMask, xK_Left), spawn "xrandr --output eDP1 --brightness 0.3")
     , ((mod4Mask .|. shiftMask, xK_Right), spawn "xrandr --output eDP1 --brightness 1")
     , ((mod4Mask .|. shiftMask, xK_c), return ())
-    , ((mod4Mask .|. controlMask, xK_x), safePrompt "firefox" greenXPConfig)
     , ((mod4Mask , xK_p), shellPrompt greenXPConfig)
     , ((mod4Mask , xK_w), spawn "xrandr --output eDP1 --auto; xrandr --output HDMI1 --off")
     , ((mod4Mask , xK_e), spawn "xrandr --output HDMI1 --auto; xrandr --output eDP1 --off")
     , ((mod4Mask , xK_g), goToSelected (gsconfig2 greenColorizer))
+    -- Mouse keys
+    , ((mod4Mask , xK_h), mouseMoveLeft mouseStep )
+    , ((mod4Mask , xK_l), mouseMoveRight mouseStep )
+    , ((mod4Mask , xK_j), mouseMoveDown mouseStep )
+    , ((mod4Mask , xK_k), mouseMoveUp mouseStep )
+    , ((mod4Mask .|. controlMask, xK_h), mouseMoveLeft slowMouseStep )
+    , ((mod4Mask .|. controlMask, xK_l), mouseMoveRight slowMouseStep )
+    , ((mod4Mask .|. controlMask, xK_j), mouseMoveDown slowMouseStep )
+    , ((mod4Mask .|. controlMask, xK_k), mouseMoveUp slowMouseStep )
+    , ((mod4Mask, xK_x), mouseClick 1)
+    , ((mod4Mask, xK_c), return ()) -- press
+    , ((mod4Mask, xK_v), return ()) -- release
+    , ((mod4Mask, xK_b), mouseClick 2)
+    , ((mod4Mask, xK_n), mouseClick 3)
+    , ((mod4Mask .|. controlMask, xK_x), mouseClick 1)
+    , ((mod4Mask .|. controlMask, xK_c), return ()) -- press
+    , ((mod4Mask .|. controlMask, xK_v), return ()) -- release
+    , ((mod4Mask .|. controlMask, xK_b), mouseClick 2)
+    , ((mod4Mask .|. controlMask, xK_n), mouseClick 3)
+    , ((mod4Mask , xK_u), mouseClick 5 ) -- scroll
+    , ((mod4Mask , xK_i), mouseClick 4 )
     ]
+  where
+    mouseStep = 80
+    slowMouseStep = 15
+    mouseMove dx dy = spawn $ "xdotool mousemove_relative -- " <> show dx <> " " <> show dy
+    mouseMoveUp ds = mouseMove 0 (-ds)
+    mouseMoveDown ds = mouseMove 0 ds
+    mouseMoveLeft ds = mouseMove (-ds) 0
+    mouseMoveRight ds = mouseMove ds 0
 
-myAdditionalKeysP =
-    let mouseStep = "120" in let slowMouseStep = "20" in
-    [ ("M-C-h",spawn $ "xdotool mousemove_relative -- -" <>  mouseStep<>" 0")
-    ,("M-C-l",spawn $ "xdotool mousemove_relative "     <>  mouseStep<>" 0")
-    ,("M-C-j",spawn $ "xdotool mousemove_relative 0 "   <>  mouseStep<>"")
-    ,("M-C-k",spawn $ "xdotool mousemove_relative -- 0 -"<>mouseStep<>"")
-    ,("M-C-S-h",spawn $ "xdotool mousemove_relative -- -"<>slowMouseStep<>" 0")
-    ,("M-C-S-l",spawn $ "xdotool mousemove_relative "<>slowMouseStep<>" 0")
-    ,("M-C-S-j",spawn $ "xdotool mousemove_relative 0 "<>slowMouseStep<>"")
-    ,("M-C-S-k",spawn $ "xdotool mousemove_relative -- 0 -"<>slowMouseStep<>"")
-    ,("M-C-S-<Space>",spawn $ "xdotool click 1     ")
-    ]
+-- Disable (all) mouse events replaced by keyboard
+myMouseBindings :: XConfig Layout -> M.Map (KeyMask, Button) (Window -> X ())
+myMouseBindings (XConfig {XMonad.modMask = modMask}) = M.fromList []
 
 myConfig xmproc  = def
-        {
-          logHook = dynamicLogWithPP def
-                        { ppOutput = hPutStrLn xmproc
-                        , ppTitle = xmobarColor "blue" "" . shorten 50
-                        }
-        , layoutHook =  myLayout
-        , handleEventHook = mconcat [ docksEventHook, handleEventHook def ]
-        , modMask = mod4Mask
-        , terminal = myTerminal
-        , borderWidth = 0
-        , focusedBorderColor = "#FF0000"
-        , normalBorderColor = "#000000"
-        , focusFollowsMouse = False
-        , workspaces = myWorkspaces
-        }
-        `additionalKeys` myAdditionalKeys
-        `additionalKeysP`myAdditionalKeysP
+    { logHook = dynamicLogWithPP def
+                    { ppOutput = hPutStrLn xmproc
+                    , ppTitle = xmobarColor "blue" "" . shorten 50
+                    }
+    , layoutHook =  myLayout
+    , handleEventHook = mconcat [ docksEventHook, handleEventHook def, keyUpEventHook, keyDownEventHook ]
+    , modMask = mod4Mask
+    , terminal = myTerminal
+    , borderWidth = 0
+    , focusedBorderColor = "#FF0000"
+    , normalBorderColor = "#000000"
+    , focusFollowsMouse = False
+    , workspaces = myWorkspaces
+    , mouseBindings = myMouseBindings
+    }
+    `additionalKeys` myAdditionalKeys
 
-myPP = xmobarPP { ppOutput          = putStrLn
-                , ppCurrent         = xmobarColor "#336433" "" . wrap "[" "]"
-                , ppTitle           = xmobarColor "darkgreen"  "" . shorten 20
-                , ppLayout          = shorten 50
-                , ppUrgent          = xmobarColor "red" "yellow"
-                }
+
 main = do
     xmproc <- spawnPipe "xmobar ~/.xmonad/xmobar.hs"
     xmonad $ myConfig xmproc
