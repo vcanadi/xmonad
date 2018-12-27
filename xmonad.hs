@@ -1,62 +1,87 @@
-import Data.Monoid
-import System.IO
-import XMonad
-import XMonad.Actions.GridSelect
-import XMonad.Hooks.DynamicLog
-import XMonad.Hooks.ManageDocks hiding (L)
-import XMonad.Hooks.Script
-import XMonad.Layout
-import XMonad.Layout.Grid
-import XMonad.Layout.NoBorders (noBorders, smartBorders)
-import XMonad.Layout.PerWorkspace
-import XMonad.Layout.Tabbed
-import XMonad.Layout.WorkspaceDir
-import XMonad.Prompt
-import XMonad.Prompt.Shell
-import XMonad.Prompt.XMonad
-import qualified XMonad.StackSet as W
-import XMonad.Util.EZConfig (additionalKeys, additionalKeysP)
-import XMonad.Util.Run (spawnPipe)
-import qualified Data.Map as M
+{-# LANGUAGE LambdaCase       #-}
+{-# LANGUAGE TypeApplications #-}
+
+import           Control.Monad               (forM_)
+import           Data.Bool                   (bool)
+import           Data.List
+import qualified Data.Map                    as M
+import           Data.Monoid
+import           System.IO
+import           XMonad
+import           XMonad.Actions.GridSelect
+import           XMonad.Hooks.DynamicLog
+import           XMonad.Hooks.EwmhDesktops
+import           XMonad.Hooks.FadeInactive
+import           XMonad.Hooks.ManageDocks    hiding (L)
+import           XMonad.Hooks.Script
+import           XMonad.Layout
+import           XMonad.Layout.Grid
+import           XMonad.Layout.NoBorders     (noBorders, smartBorders)
+import           XMonad.Layout.PerWorkspace
+import           XMonad.Layout.Tabbed
+import           XMonad.Layout.WorkspaceDir
+import           XMonad.Prompt
+import           XMonad.Prompt.Shell
+import           XMonad.Prompt.XMonad
+import qualified XMonad.StackSet             as W
+import qualified XMonad.Util.ExtensibleState as XS
+import           XMonad.Util.EZConfig        (additionalKeys, additionalKeysP)
+import           XMonad.Util.Run             (safeSpawn, spawnPipe)
 
 
-greenColorizer = colorRangeFromClassName
-    white            -- lowest inactive bg
-    (0x70,0xFF,0x70) -- highest inactive bg
-    black            -- active bg
-    black            -- inactive fg
-    white            -- active fg
-  where black = minBound
-        white = maxBound
+-- Displays from 'xrandr'
+-- TODO Automate this
+primaryDisplay = "eDP-1-1"
+secondaryDisplay = "HDMI-0"
+displays = [primaryDisplay, secondaryDisplay]
 
-gsconfig2 colorizer = (buildDefaultGSConfig colorizer) { gs_cellheight = 30, gs_cellwidth = 100 }
+data DisplayState = DSPrimary | DSSecondary | DSBoth deriving (Eq, Bounded, Enum, Show, Typeable)
+instance ExtensionClass DisplayState where
+    initialValue = DSPrimary
 
-myWorkspaces = ["1","2","3:reports","4","5", "6", "7:media", "8", "9:web"]
+-- Easy configuration change when changing relative display 1 and 2 position
+data SecondaryDisplayPosition = SDPLeft | SDPRight
+secondaryDisplayPosition = SDPRight
 
-myTallLayout =  Tall  nmaster delta tiled_ratio
+sdpXrandr = case secondaryDisplayPosition of
+            SDPLeft  -> "--right-of"
+            SDPRight -> "--left-of"
+
+sdpKeys = case secondaryDisplayPosition of
+          SDPLeft  -> [xK_w, xK_e]
+          SDPRight -> [xK_e, xK_w]
+
+-- Cyclic enumeration hack
+next :: (Eq a, Enum a, Bounded a) => a -> a
+next = bool minBound <$> succ <*> (/= maxBound)
+
+-- Force usage of tmux as a window manager by restricting control on xmonad layer
+myWorkspaces = ["primary", "secondary"]
+
+myTallLayout =  Tall nmaster delta tiled_ratio
     where
     nmaster = 1
     delta = 10/100
     tiled_ratio = 11/19
 
 myDefaultLayout =
-        smartBorders myTallLayout
+        simpleTabbedBottom
+    ||| smartBorders myTallLayout
     ||| smartBorders (Mirror myTallLayout)
 
-myLayout =
-        avoidStruts
-      $ onWorkspace (myWorkspaces!!6) (noBorders Full)
-      $ onWorkspace (myWorkspaces!!8) (simpleTabbed ||| Mirror myTallLayout)
-      $ myDefaultLayout
-
--- myLayoutWithDir dir = workspaceDir dir $ myLayout
+myLayout = avoidStruts $ myDefaultLayout
 
 myTerminal = "urxvt"
 
+spawnShell = safeSpawn myTerminal []
+
+restartXMonad = broadcastMessage ReleaseResources >>
+                restart "xmonad" True
+
 mousePress, mouseRelease, mouseClick :: Int -> X ()
-mousePress btn = spawn $ "xdotool mousedown " <> show btn
-mouseRelease btn = spawn $ "xdotool mouseup " <> show btn
-mouseClick btn = spawn $ "xdotool mousedown " <> show btn <> "; xdotool mouseup " <> show btn
+mousePress btn = safeSpawn "xdotool" [ "mousedown", show btn]
+mouseRelease btn = safeSpawn "xdotool" [ "mouseup", show btn]
+mouseClick btn = safeSpawn "xdotool" [ "click", show btn]
 
 -- Get key release for mouse click simulation
 keyDownEventHook :: Event -> X All
@@ -91,20 +116,20 @@ keyUpEventHook e = handle e >> return (All True)
       , ((mod4Mask .|. controlMask, xK_v), mouseRelease 1)
       ]
 
-myAdditionalKeys =
-    [ ((mod4Mask .|. shiftMask, xK_z), spawn "sleep 0.1 ; xtrlock")
-    , ((controlMask, xK_Print), spawn "sleep 0.2; scrot -e 'mv $f ~/downloads/screenshots/' ")
-    , ((mod4Mask, xK_Left), spawn "pactl  set-sink-volume alsa_output.pci-0000_00_1f.3.analog-stereo -5%")
-    , ((mod4Mask, xK_Right), spawn "pactl  set-sink-volume alsa_output.pci-0000_00_1f.3.analog-stereo +5%")
-    , ((mod4Mask, xK_Up), spawn "setxkbmap us")
-    , ((mod4Mask, xK_Down), spawn "setxkbmap hr")
-    , ((mod4Mask .|. shiftMask, xK_Left), spawn "xrandr --output eDP1 --brightness 0.3")
-    , ((mod4Mask .|. shiftMask, xK_Right), spawn "xrandr --output eDP1 --brightness 1")
-    , ((mod4Mask .|. shiftMask, xK_c), return ())
-    , ((mod4Mask , xK_p), shellPrompt greenXPConfig)
-    , ((mod4Mask , xK_w), spawn "xrandr --output eDP1 --auto; xrandr --output HDMI1 --off")
-    , ((mod4Mask , xK_e), spawn "xrandr --output HDMI1 --auto; xrandr --output eDP1 --off")
-    , ((mod4Mask , xK_g), goToSelected (gsconfig2 greenColorizer))
+myKeys = \conf -> M.fromList $
+    [ ((0, xK_Print),  safeSpawn "scrot" [ "-e 'mv $f ~/downloads/screenshots/'"] )
+
+    -- Toggle primary display
+    , ( (mod4Mask , xK_r)
+      ,  XS.modify @DisplayState next
+      >> XS.get @DisplayState >>= \case
+          DSPrimary   -> safeSpawn "xrandr" [ "--output", primaryDisplay,   "--auto"
+                                            , "--output", secondaryDisplay, "--off"]
+          DSSecondary -> safeSpawn "xrandr" [ "--output", primaryDisplay,   "--off"
+                                            , "--output", secondaryDisplay, "--auto"]
+          DSBoth      -> safeSpawn "xrandr" [ "--output", primaryDisplay,   "--auto"
+                                            , sdpXrandr,  secondaryDisplay])
+
     -- Mouse keys
     , ((mod4Mask , xK_h), mouseMoveLeft mouseStep )
     , ((mod4Mask , xK_l), mouseMoveRight mouseStep )
@@ -126,11 +151,39 @@ myAdditionalKeys =
     , ((mod4Mask .|. controlMask, xK_n), mouseClick 3)
     , ((mod4Mask , xK_u), mouseClick 5 ) -- scroll
     , ((mod4Mask , xK_i), mouseClick 4 )
+    , ((mod4Mask , xK_y), mouseClick 6 )
+    , ((mod4Mask , xK_o), mouseClick 7 )
+
+    -- Windows management is moved to tmux so use tmux's modifier for window specific actions on xmonad level
+    , ((mod1Mask , xK_Tab), windows W.focusDown)
+    , ((mod1Mask .|. shiftMask, xK_Tab), windows W.swapDown)
+    , ((mod1Mask , xK_p), shellPrompt amberXPConfig)
+    , ((mod1Mask , xK_semicolon), safeSpawn "rofi" ["-modi", "run", "-show", "drun"])
+    , ((mod1Mask, xK_Return), spawnShell)
+    , ((mod1Mask, xK_Left), safeSpawn "pactl" [ "set-sink-volume", "alsa_output.pci-0000_00_1f.3.analog-stereo", "-5%" ])
+    , ((mod1Mask, xK_Right), safeSpawn "pactl" [ "set-sink-volume", "alsa_output.pci-0000_00_1f.3.analog-stereo", "+5%" ])
+    , ((mod1Mask .|. shiftMask, xK_Left), forM_ displays $ \d -> safeSpawn "xrandr" [ "--output", d, "--brightness", "0.3"])
+    , ((mod1Mask .|. shiftMask, xK_Right), forM_ displays $ \d -> safeSpawn "xrandr" [ "--output", d, "--brightness", "1"])
+    , ((mod1Mask, xK_q), restartXMonad)
+    , ((mod1Mask, xK_space), sendMessage NextLayout)
     ]
+    <>
+    -- mod-{w,e} %! Switch to physical/Xinerama screens 1 or 2
+    -- mod-shift-{w,e} %! Move client to screen 1 or 2
+    [ ((m .|. mod1Mask, key), screenWorkspace sc >>= flip whenJust (windows . f))
+    | (key, sc) <- zip sdpKeys [0..]
+    , (f, m) <- [(W.view, 0), (W.shift, shiftMask)]]
+    <>
+    -- mod-[1..9] %! Switch to workspace N
+    -- mod-shift-[1..9] %! Move client to workspace N
+    [((m .|. mod4Mask, k), windows $ f i)
+        | (i, k) <- zip (XMonad.workspaces conf) [xK_1 .. xK_9]
+        , (f, m) <- [(W.greedyView, 0), (W.shift, shiftMask)]]
+
   where
     mouseStep = 80
     slowMouseStep = 15
-    mouseMove dx dy = spawn $ "xdotool mousemove_relative -- " <> show dx <> " " <> show dy
+    mouseMove dx dy = safeSpawn "xdotool" [ "mousemove_relative", "--", show dx, show dy ]
     mouseMoveUp ds = mouseMove 0 (-ds)
     mouseMoveDown ds = mouseMove 0 ds
     mouseMoveLeft ds = mouseMove (-ds) 0
@@ -140,23 +193,28 @@ myAdditionalKeys =
 myMouseBindings :: XConfig Layout -> M.Map (KeyMask, Button) (Window -> X ())
 myMouseBindings (XConfig {XMonad.modMask = modMask}) = M.fromList []
 
+myLogHook :: X ()
+myLogHook = fadeInactiveLogHook fadeAmount
+    where fadeAmount = 0.8
+
+
 myConfig xmproc  = def
-    { logHook = dynamicLogWithPP def
-                    { ppOutput = hPutStrLn xmproc
-                    , ppTitle = xmobarColor "blue" "" . shorten 50
-                    }
+    { manageHook = manageDocks <+> manageHook defaultConfig
+    , logHook    = myLogHook
+    -- , logHook = dynamicLogWithPP def
+    --                 { ppOutput = hPutStrLn xmproc
+    --                 , ppTitle = xmobarColor "white" "" . shorten 50
+    --                 }
     , layoutHook =  myLayout
     , handleEventHook = mconcat [ docksEventHook, handleEventHook def, keyUpEventHook, keyDownEventHook ]
     , modMask = mod4Mask
     , terminal = myTerminal
     , borderWidth = 0
-    , focusedBorderColor = "#FF0000"
-    , normalBorderColor = "#000000"
     , focusFollowsMouse = False
     , workspaces = myWorkspaces
     , mouseBindings = myMouseBindings
+    , keys = myKeys
     }
-    `additionalKeys` myAdditionalKeys
 
 
 main = do
