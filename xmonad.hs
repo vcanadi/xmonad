@@ -65,7 +65,7 @@ myTallLayout =  Tall nmaster delta tiled_ratio
     tiled_ratio = 11/19
 
 myDefaultLayout =
-        simpleTabbedBottom
+        simpleTabbed
     ||| smartBorders myTallLayout
     ||| smartBorders (Mirror myTallLayout)
 

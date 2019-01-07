@@ -5,7 +5,7 @@ Config {
      font =         "xft:monospace:size=9:antialias=true"
    , bgColor =      "black"
    , fgColor =      "#AAAAAA"
-   , position =     BottomSize C 100 30
+   , position =     TopSize C 100 30
    , border =       TopB
    , borderColor =  "#646464"
 
