@@ -12,6 +12,7 @@ import           XMonad.Actions.GridSelect
 import           XMonad.Hooks.DynamicLog
 import           XMonad.Hooks.EwmhDesktops
 import           XMonad.Hooks.FadeInactive
+import           XMonad.Hooks.FadeWindows (fadeWindowsLogHook, transparent)
 import           XMonad.Hooks.ManageDocks    hiding (L)
 import           XMonad.Hooks.Script
 import           XMonad.Layout
@@ -27,7 +28,6 @@ import qualified XMonad.StackSet             as W
 import qualified XMonad.Util.ExtensibleState as XS
 import           XMonad.Util.EZConfig        (additionalKeys, additionalKeysP)
 import           XMonad.Util.Run             (safeSpawn, spawnPipe)
-
 
 -- Displays from 'xrandr'
 -- TODO Automate this
@@ -117,7 +117,7 @@ keyUpEventHook e = handle e >> return (All True)
       ]
 
 myKeys = \conf -> M.fromList $
-    [ ((0, xK_Print),  safeSpawn "scrot" [ "-e 'mv $f ~/downloads/screenshots/'"] )
+    [ ((0, xK_Print),  safeSpawn "scrot" [ "~/downloads/screenshots/%y-%b%d-%H:%M:%S.png"] )
 
     -- Toggle primary display
     , ( (mod4Mask , xK_r)
@@ -153,6 +153,8 @@ myKeys = \conf -> M.fromList $
     , ((mod4Mask , xK_i), mouseClick 4 )
     , ((mod4Mask , xK_y), mouseClick 6 )
     , ((mod4Mask , xK_o), mouseClick 7 )
+    , ((mod4Mask , xK_u), sendMessage Shrink )
+    , ((mod4Mask , xK_i), sendMessage Expand )
 
     -- Windows management is moved to tmux so use tmux's modifier for window specific actions on xmonad level
     , ((mod1Mask , xK_Tab), windows W.focusDown)
@@ -194,13 +196,16 @@ myMouseBindings :: XConfig Layout -> M.Map (KeyMask, Button) (Window -> X ())
 myMouseBindings (XConfig {XMonad.modMask = modMask}) = M.fromList []
 
 myLogHook :: X ()
-myLogHook = fadeInactiveLogHook fadeAmount
-    where fadeAmount = 0.8
+myLogHook = fadeWindowsLogHook solid
+-- fadeWindowsLogHook fadeAmount
+    -- where fadeAmount = 1
 
 
 myConfig xmproc  = def
     { manageHook = manageDocks <+> manageHook defaultConfig
-    , logHook    = myLogHook
+                               <+> composeAll
+                                   [ className =? "qjackctl"      --> doFloat]
+    , logHook = myLogHook
     -- , logHook = dynamicLogWithPP def
     --                 { ppOutput = hPutStrLn xmproc
     --                 , ppTitle = xmobarColor "white" "" . shorten 50
